@@ -19,7 +19,7 @@ def index():
 def static_files(filename):
     return send_from_directory(PUBLIC_DIR, filename)
 
-# ─── STOCK UNIVERSES ─────────────────────────────────────
+# ─── STOCK UNIVERSES ────────────────────────────────────────────────────
 
 STOCKS_AI = {
     "Data Center Operators": {
@@ -163,15 +163,57 @@ STOCKS_ENERGY = {
     }
 }
 
-ALL_STOCKS = {
-    "ai": STOCKS_AI,
-    "ev": STOCKS_EV,
-    "energy": STOCKS_ENERGY
+STOCKS_DEFENCE = {
+    "Aerospace & Aircraft Manufacturing": {
+        "Hindustan Aeronautics": "HAL.NS",
+        "Data Patterns": "DATAPATTNS.NS",
+        "Paras Defence": "PARAS.NS",
+        "Unimech Aerospace": "UNIMECH.NS",
+        "Dynamatic Technologies": "DYNAMATECH.NS",
+        "ideaForge": "IDEAFORGE.NS"
+    },
+    "Shipbuilding & Naval Systems": {
+        "Mazagon Dock": "MAZDOCK.NS",
+        "Cochin Shipyard": "COCHINSHIP.NS",
+        "Garden Reach Shipbuilders": "GRSE.NS"
+    },
+    "Missiles, Weapons & Ammunition": {
+        "Bharat Dynamics": "BDL.NS",
+        "Solar Industries": "SOLARINDS.NS",
+        "Premier Explosives": "PREMEXPLN.NS"
+    },
+    "Defence Electronics, Radars & Components": {
+        "Bharat Electronics": "BEL.NS",
+        "Astra Microwave": "ASTRAMICRO.NS",
+        "Zen Technologies": "ZENTEC.NS",
+        "MTAR Technologies": "MTARTECH.NS",
+        "Avantel": "AVANTEL.NS",
+        "Axiscades": "AXISCADES.NS",
+        "Apollo Micro Systems": "APOLLO.NS",
+        "Mishra Dhatu Nigam": "MIDHANI.NS",
+        "Cyient DLM": "CYIENTDLM.NS",
+        "Rossell Techsys": "ROSSTECH.NS",
+        "CFF Fluid Control": "CFF.BO",
+        "BEML": "BEML.NS",
+        "Bharat Forge": "BHARATFORG.NS",
+        "Kaynes Technology": "KAYNES.NS",
+        "Sika Interplant": "SIKA.NS",
+        "Krishna Defence": "KRISHNADEF.NS",
+        "Rossell India": "ROSSELLIND.NS"
+    }
 }
 
+ALL_STOCKS = {
+    "ai":      STOCKS_AI,
+    "ev":      STOCKS_EV,
+    "energy":  STOCKS_ENERGY,
+    "defence": STOCKS_DEFENCE,
+}
+
+# ─── HELPERS ────────────────────────────────────────────────────────────
+
 def build_ticker_map(stocks_dict):
-    ticker_map = {}
-    all_tickers = []
+    ticker_map, all_tickers = {}, []
     for sector, stocks in stocks_dict.items():
         for name, ticker in stocks.items():
             ticker_map[ticker] = (name, sector)
@@ -179,7 +221,6 @@ def build_ticker_map(stocks_dict):
                 all_tickers.append(ticker)
     return ticker_map, all_tickers
 
-# ─── CACHE ───────────────────────────────────────────────
 _cache = {}
 CACHE_TTL = 60
 
@@ -207,11 +248,11 @@ def get_tracker_id(req):
     tracker = req.args.get('tracker', 'ai')
     if tracker == 'en':
         tracker = 'energy'
-    if tracker not in ('ai', 'ev', 'energy'):
+    if tracker not in ALL_STOCKS:
         tracker = 'ai'
     return tracker
 
-# ─── API ROUTES ──────────────────────────────────────────
+# ─── API ROUTES ─────────────────────────────────────────────────────────
 
 @app.route('/api/quotes')
 def get_quotes():
@@ -223,7 +264,6 @@ def get_quotes():
 
     stocks_dict = ALL_STOCKS[tracker]
     ticker_map, all_tickers = build_ticker_map(stocks_dict)
-
     results = []
     try:
         tickers_obj = yf.Tickers(' '.join(all_tickers))
@@ -280,12 +320,10 @@ def get_history():
     period = request.args.get('period', '1mo')
     if period not in ['1d', '5d', '1mo', '3mo', '1y']:
         period = '1mo'
-
     cache_key = f'history_{ticker}_{period}'
     cached = get_cached(cache_key)
     if cached:
         return jsonify(cached)
-
     try:
         interval = '5m' if period == '1d' else '1d'
         hist = yf.Ticker(ticker).history(period=period, interval=interval)
@@ -313,10 +351,8 @@ def get_sparklines():
     cached = get_cached(cache_key)
     if cached:
         return jsonify(cached)
-
     stocks_dict = ALL_STOCKS[tracker]
     _, all_tickers = build_ticker_map(stocks_dict)
-
     result = {}
     try:
         hist = yf.download(
@@ -325,17 +361,13 @@ def get_sparklines():
         )
         for ticker in all_tickers:
             try:
-                if len(all_tickers) == 1:
-                    closes = hist['Close'].dropna().tolist()
-                else:
-                    closes = hist[ticker]['Close'].dropna().tolist()
+                closes = hist['Close'].dropna().tolist() if len(all_tickers) == 1 else hist[ticker]['Close'].dropna().tolist()
                 result[ticker] = [round(c, 2) for c in closes]
             except Exception:
                 result[ticker] = []
     except Exception:
         for ticker in all_tickers:
             result[ticker] = []
-
     set_cached(cache_key, result)
     return jsonify(result)
 
@@ -347,10 +379,8 @@ def get_sector_heatmap():
     cached = get_cached(cache_key)
     if cached:
         return jsonify(cached)
-
     stocks_dict = ALL_STOCKS[tracker]
     ticker_map, all_tickers = build_ticker_map(stocks_dict)
-
     results = []
     try:
         hist = yf.download(
@@ -358,33 +388,28 @@ def get_sector_heatmap():
             group_by='ticker', auto_adjust=True, progress=False
         )
         single = len(all_tickers) == 1
-
         sector_tickers = {}
         for ticker, (name, sector) in ticker_map.items():
             sector_tickers.setdefault(sector, []).append(ticker)
 
         for sector, tickers in sorted(sector_tickers.items()):
             sector_rets = {'1d': [], '1w': [], '1m': [], '1y': []}
-            count = len(tickers)
-
             for ticker in tickers:
                 try:
                     closes = hist['Close'].dropna() if single else hist[ticker]['Close'].dropna()
                     if len(closes) < 2:
                         continue
                     price = float(closes.iloc[-1])
-
                     def pct(n):
                         if len(closes) > n:
                             base = float(closes.iloc[-(n+1)])
                             if base and base > 0:
                                 return (price - base) / base * 100
                         return None
-
-                    for key, val in zip(['1d','1w','1m','1y'], [pct(1), pct(5), pct(21),
+                    for key, val in zip(['1d','1w','1m','1y'], [
+                        pct(1), pct(5), pct(21),
                         pct(252) if len(closes) >= 252 else (
-                            (price - float(closes.iloc[0])) / float(closes.iloc[0]) * 100
-                            if len(closes) > 1 else None
+                            (price - float(closes.iloc[0])) / float(closes.iloc[0]) * 100 if len(closes) > 1 else None
                         )
                     ]):
                         if val is not None:
@@ -396,13 +421,12 @@ def get_sector_heatmap():
                 return round(sum(lst)/len(lst), 1) if lst else None
 
             results.append({
-                'sector': sector, 'count': count,
+                'sector': sector, 'count': len(tickers),
                 'ret_1d': avg(sector_rets['1d']),
                 'ret_1w': avg(sector_rets['1w']),
                 'ret_1m': avg(sector_rets['1m']),
                 'ret_1y': avg(sector_rets['1y']),
             })
-
     except Exception as e:
         return jsonify({'error': str(e), 'data': results}), 500
 
@@ -417,10 +441,8 @@ def get_screener():
     cached = get_cached(cache_key)
     if cached:
         return jsonify(cached)
-
     stocks_dict = ALL_STOCKS[tracker]
     ticker_map, all_tickers = build_ticker_map(stocks_dict)
-
     results = []
     try:
         hist = yf.download(
@@ -428,32 +450,26 @@ def get_screener():
             group_by='ticker', auto_adjust=True, progress=False
         )
         single = len(all_tickers) == 1
-
         for ticker in all_tickers:
             try:
                 name, sector = ticker_map[ticker]
                 closes = hist['Close'].dropna() if single else hist[ticker]['Close'].dropna()
                 if len(closes) < 2:
                     raise ValueError("Not enough data")
-
                 price = float(closes.iloc[-1])
-
                 def pct_return(n):
                     if len(closes) > n:
                         base = float(closes.iloc[-(n+1)])
                         if base and base > 0:
                             return round((price - base) / base * 100, 2)
                     return None
-
                 results.append({
                     "name": name, "ticker": ticker, "sector": sector,
                     "price": round(price, 2),
-                    "ret_1d": pct_return(1),
-                    "ret_1w": pct_return(5),
+                    "ret_1d": pct_return(1), "ret_1w": pct_return(5),
                     "ret_1m": pct_return(21),
                     "ret_1y": pct_return(252) if len(closes) >= 252 else (
-                        round((price - float(closes.iloc[0])) / float(closes.iloc[0]) * 100, 2)
-                        if len(closes) > 1 else None
+                        round((price - float(closes.iloc[0])) / float(closes.iloc[0]) * 100, 2) if len(closes) > 1 else None
                     ),
                 })
             except Exception as e:
@@ -472,7 +488,11 @@ def get_screener():
 
 @app.route('/api/health')
 def health():
-    return jsonify({"status": "ok", "trackers": list(ALL_STOCKS.keys())})
+    return jsonify({
+        "status": "ok",
+        "trackers": list(ALL_STOCKS.keys()),
+        "counts": {k: sum(len(v) for v in d.values()) for k, d in ALL_STOCKS.items()}
+    })
 
 
 if __name__ == '__main__':
